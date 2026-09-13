@@ -1,0 +1,120 @@
+{
+  "name": "vs-sqlview",
+  "displayName": "VS-SQLView",
+  "description": "VS Code extension for SQL script analysis and query plan visualization",
+  "version": "0.0.1",
+  "publisher": "yourpublishername",
+  "engines": {
+    "vscode": "^1.51.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:vs-sqlview.analyzeSqlScript",
+    "onCommand:vs-sqlview.showQueryFlow",
+    "onCommand:vs-sqlview.formatSql",
+    "onLanguage:sql"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vs-sqlview.analyzeSqlScript",
+        "title": "Analyze SQL Script",
+        "icon": "$(database)"
+      },
+      {
+        "command": "vs-sqlview.showQueryFlow",
+        "title": "Show SQL Query Flow",
+        "icon": "$(zap)"
+      },
+      {
+        "command": "vs-sqlview.formatSql",
+        "title": "Format SQL Document",
+        "icon": "$(paintcan)"
+      }
+    ],
+    "configuration": {
+      "title": "VS-SQLView",
+      "properties": {
+        "vs-sqlview.diagnostics.enabled": {
+          "type": "boolean",
+          "scope": "window",
+          "default": true,
+          "description": "Mostra le sottolineature di performance direttamente nell'editor SQL."
+        },
+        "vs-sqlview.diagnostics.delayMs": {
+          "type": "number",
+          "scope": "window",
+          "default": 400,
+          "minimum": 0,
+          "maximum": 5000,
+          "description": "Ritardo (ms) dopo la digitazione prima di rianalizzare il documento."
+        },
+        "vs-sqlview.format.keywordCase": {
+          "type": "string",
+          "scope": "window",
+          "enum": ["upper", "lower", "preserve"],
+          "default": "upper",
+          "description": "Maiuscole/minuscole delle parole chiave SQL nella formattazione."
+        },
+        "vs-sqlview.format.indentWidth": {
+          "type": "number",
+          "scope": "window",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Spazi di indentazione nella formattazione SQL."
+        },
+        "vs-sqlview.schemaFile": {
+          "type": "string",
+          "scope": "window",
+          "default": "",
+          "description": "Percorso (assoluto o relativo al workspace) a un file .sql con i CREATE TABLE per validare tabelle e colonne."
+        }
+      }
+    },
+    "menus": {
+      "editor/title": [
+        {
+          "when": "editorLangId == sql",
+          "command": "vs-sqlview.analyzeSqlScript",
+          "group": "navigation"
+        },
+        {
+          "when": "editorLangId == sql",
+          "command": "vs-sqlview.showQueryFlow",
+          "group": "navigation"
+        },
+        {
+          "when": "editorLangId == sql",
+          "command": "vs-sqlview.formatSql",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTests.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.51.0",
+    "@types/glob": "^7.1.3",
+    "@types/mocha": "^8.0.4",
+    "@types/node": "^12.11.7",
+    "@typescript-eslint/eslint-plugin": "^4.11.0",
+    "@typescript-eslint/parser": "^4.11.0",
+    "eslint": "^7.19.0",
+    "glob": "^7.1.6",
+    "mocha": "^8.2.1",
+    "typescript": "^4.1.3",
+    "@vscode/test-electron": "^2.3.8"
+  }
+}
