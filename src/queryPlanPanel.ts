@@ -260,7 +260,38 @@ export class QueryPlanPanel {
       width: 100%;
       height: 100%;
       display: block;
+      cursor: grab;
     }
+
+    .zoom-controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      background: #181825ee;
+      border: 1px solid #313244;
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 11px;
+      color: #a6adc8;
+      z-index: 5;
+    }
+
+    .zoom-controls button {
+      background: #313244;
+      color: #cdd6f4;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      padding: 2px 9px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .zoom-controls button:hover { border-color: #89b4fa; }
+    #zoomLabel { min-width: 44px; text-align: center; font-weight: 600; color: #cdd6f4; }
+    .zoom-hint { font-size: 10px; color: #6c7086; }
 
     .sidebar {
       background: #181825;
@@ -400,6 +431,13 @@ export class QueryPlanPanel {
     <div class="main">
       <div class="canvas-area">
         <canvas id="flowCanvas"></canvas>
+        <div class="zoom-controls">
+          <button id="zoomOut" title="Riduci zoom">−</button>
+          <span id="zoomLabel">100%</span>
+          <button id="zoomIn" title="Aumenta zoom">+</button>
+          <button id="zoomReset" title="Adatta il grafo alla vista">Reset</button>
+          <span class="zoom-hint">rotella = zoom · trascina = pan</span>
+        </div>
       </div>
       <div class="sidebar">
         <h2>Query Score — ${score.total}/100 (${score.grade})</h2>
@@ -477,6 +515,14 @@ export class QueryPlanPanel {
     let width, height;
     let animationFrame;
     let time = 0;
+    let view = { s: 1, ox: 0, oy: 0 };
+    let userZoomed = false;
+
+    function toScreen(x, y) { return [x * view.s + view.ox, y * view.s + view.oy]; }
+    function updateZoomLabel() {
+      const el = document.getElementById('zoomLabel');
+      if (el) el.textContent = Math.round(view.s * 100) + '%';
+    }
 
     const NODE_COLORS = {
       table:    { bg: '#89b4fa', text: '#1e1e2e' },
@@ -544,10 +590,12 @@ export class QueryPlanPanel {
     }
 
     function drawEdge(parent, child, t) {
-      const x1 = parent._x;
-      const y1 = parent._y + 35;
-      const x2 = child._x;
-      const y2 = child._y - 35;
+      const p1 = toScreen(parent._x, parent._y + 35);
+      const p2 = toScreen(child._x, child._y - 35);
+      const x1 = p1[0];
+      const y1 = p1[1];
+      const x2 = p2[0];
+      const y2 = p2[1];
 
       ctx.beginPath();
       ctx.strokeStyle = '#45475a';
@@ -578,14 +626,19 @@ export class QueryPlanPanel {
 
     function drawNode(node) {
       const colors = getNodeColor(node.type);
-      const x = node._x - 70;
-      const y = node._y - 35;
+      const p = toScreen(node._x, node._y);
+      const cx = p[0];
+      const cy = p[1];
+      const w = 140 * view.s;
+      const h = 70 * view.s;
+      const x = cx - w / 2;
+      const y = cy - h / 2;
 
       ctx.shadowColor = colors.bg;
       ctx.shadowBlur = 15;
 
       ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(x, y, 140, 70, 12); else ctx.rect(x, y, 140, 70);
+      if (ctx.roundRect) ctx.roundRect(x, y, w, h, 12); else ctx.rect(x, y, w, h);
       ctx.fillStyle = '#1e1e2e';
       ctx.fill();
       ctx.strokeStyle = colors.bg;
@@ -594,18 +647,18 @@ export class QueryPlanPanel {
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = colors.bg;
-      ctx.font = 'bold 11px Segoe UI';
+      ctx.font = 'bold ' + Math.max(9, Math.round(11 * view.s)) + 'px Segoe UI';
       ctx.textAlign = 'center';
-      ctx.fillText(node.label.length > 18 ? node.label.substring(0, 16) + '...' : node.label, node._x, node._y - 5);
+      ctx.fillText(node.label.length > 18 ? node.label.substring(0, 16) + '...' : node.label, cx, cy - 5 * view.s);
 
       ctx.fillStyle = '#a6adc8';
-      ctx.font = '10px Segoe UI';
-      ctx.fillText(node.type.toUpperCase(), node._x, node._y + 12);
+      ctx.font = Math.max(8, Math.round(10 * view.s)) + 'px Segoe UI';
+      ctx.fillText(node.type.toUpperCase(), cx, cy + 12 * view.s);
 
       ctx.fillStyle = colors.bg;
       ctx.globalAlpha = 0.15;
       ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(x, y, 140, 70, 12); else ctx.rect(x, y, 140, 70);
+      if (ctx.roundRect) ctx.roundRect(x, y, w, h, 12); else ctx.rect(x, y, w, h);
       ctx.fill();
       ctx.globalAlpha = 1;
 
@@ -616,16 +669,39 @@ export class QueryPlanPanel {
       }
     }
 
+    function fitView() {
+      const pad = 40;
+      const treeW = Math.max(treeData._w || 140, 1);
+      const depth = getMaxDepth(treeData);
+      const treeH = (depth + 1) * 110 + 40;
+      const s = Math.min((width - pad * 2) / treeW, (height - pad * 2) / treeH, 1);
+      view = { s: Math.max(0.4, Math.min(2.2, s || 1)), ox: 0, oy: 0 };
+      userZoomed = false;
+      updateZoomLabel();
+    }
+
+    function zoomAt(mx, my, factor) {
+      const wx = (mx - view.ox) / view.s;
+      const wy = (my - view.oy) / view.s;
+      const ns = Math.min(2.2, Math.max(0.4, view.s * factor));
+      view.s = ns;
+      view.ox = mx - wx * ns;
+      view.oy = my - wy * ns;
+      userZoomed = true;
+      updateZoomLabel();
+    }
+
+    let initialFitDone = false;
+
     function draw() {
       ctx.clearRect(0, 0, width, height);
 
-      const totalDepth = getMaxDepth(treeData);
-      const totalWidth = treeData._w;
       const startX = width / 2;
       const startY = 70;
 
       layoutTree(treeData);
       positionTree(treeData, startX, startY);
+      if (!initialFitDone) { fitView(); initialFitDone = true; }
 
       drawEdge(treeData, treeData.children[0], time);
       if (treeData.children[0].children) {
@@ -664,7 +740,28 @@ export class QueryPlanPanel {
       resize();
     });
 
+    document.getElementById('zoomIn').onclick = () => zoomAt(width / 2, height / 2, 1.2);
+    document.getElementById('zoomOut').onclick = () => zoomAt(width / 2, height / 2, 1 / 1.2);
+    document.getElementById('zoomReset').onclick = () => { fitView(); };
+
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const r = canvas.getBoundingClientRect();
+      zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.1 : 0.9);
+    }, { passive: false });
+
+    let drag = null;
+    canvas.addEventListener('mousedown', (e) => {
+      drag = { x: e.clientX - view.ox, y: e.clientY - view.oy };
+      canvas.style.cursor = 'grabbing';
+    });
+    window.addEventListener('mouseup', () => { drag = null; canvas.style.cursor = 'grab'; });
+    window.addEventListener('mousemove', (e) => {
+      if (drag) { view.ox = e.clientX - drag.x; view.oy = e.clientY - drag.y; userZoomed = true; }
+    });
+
     resize();
+    updateZoomLabel();
     draw();
   </script>
 </body>

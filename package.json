@@ -2,8 +2,9 @@
   "name": "vs-sqlview",
   "displayName": "VS-SQLView",
   "description": "VS Code extension for SQL script analysis and query plan visualization",
-  "version": "0.0.1",
-  "publisher": "yourpublishername",
+  "version": "1.0.0",
+  "author": {"name": "Gennaro Riccio"},
+  "publisher": "gennaroriccio",
   "engines": {
     "vscode": "^1.51.0"
   },

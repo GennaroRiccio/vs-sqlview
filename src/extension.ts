@@ -1,3 +1,7 @@
+declare const console: {
+  log: (...data: any[]) => void;
+};
+
 import * as vscode from 'vscode';
 import { SqlParser, splitStatements } from './sqlParser';
 import { PerformanceAnalyzer } from './performanceAnalyzer';
