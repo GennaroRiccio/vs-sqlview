@@ -1,12 +1,21 @@
 # VS-SQLView
 
-![version](https://img.shields.io/badge/version-0.0.1-blue)
+![version](https://img.shields.io/badge/version-1.0.0-blue)
 ![VS Code engine](https://img.shields.io/badge/VS%20Code-%5E1.51.0-blue)
 ![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)
 
 VS Code extension for SQL script analysis and query plan visualization.
 
 Open a `.sql` file, run the analysis, and get a performance score, actionable warnings, index DDL suggestions, and animated visualizations of how your query executes.
+
+## Demo
+
+<video src="images/vs-sqlview.mp4" controls width="100%">
+  Your browser does not support embedded video.
+  <a href="images/vs-sqlview.mp4">Watch the demo video (MP4)</a>
+</video>
+
+> If the player above doesn't render on GitHub, [watch the demo video directly](images/vs-sqlview.mp4).
 
 ## Features
 
