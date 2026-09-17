@@ -4,6 +4,7 @@
   "description": "VS Code extension for SQL script analysis and query plan visualization",
   "version": "1.0.0",
   "author": {"name": "Gennaro Riccio"},
+  "repository": {"type": "git", "url": "https://github.com/GennaroRiccio/vs-sqlview"},
   "publisher": "gennaroriccio",
   "engines": {
     "vscode": "^1.51.0"
