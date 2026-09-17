@@ -8,6 +8,13 @@ VS Code extension for SQL script analysis and query plan visualization.
 
 Open a `.sql` file, run the analysis, and get a performance score, actionable warnings, index DDL suggestions, and animated visualizations of how your query executes.
 
+### Query Plan Analyzer
+
+![SQL Query Plan Analyzer with score, index suggestions and animated plan tree](images/demo01.png)
+
+### Query Flow
+
+![Animated vertical SQL query flow with expandable nodes](images/demo02.png)
 ## Demo
 
 <video src="images/vs-sqlview.mp4" controls width="100%">
