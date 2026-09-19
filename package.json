@@ -2,7 +2,7 @@
   "name": "vs-sqlview",
   "displayName": "VS-SQLView",
   "description": "VS Code extension for SQL script analysis and query plan visualization",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": {"name": "Gennaro Riccio"},
   "repository": {"type": "git", "url": "https://github.com/GennaroRiccio/vs-sqlview"},
   "publisher": "gennaroriccio",
@@ -103,6 +103,7 @@
     "watch": "tsc -watch -p ./",
     "package": "npx @vscode/vsce package",
     "pretest": "npm run compile && npm run lint",
+    "test:unit": "npm run compile && node src/test/unitRunner.js",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTests.js"
   },

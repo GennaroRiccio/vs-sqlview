@@ -8,6 +8,7 @@ import { PerformanceAnalyzer } from './performanceAnalyzer';
 import { QueryPlanPanel } from './queryPlanPanel';
 import { QueryFlowPanel } from './queryFlowPanel';
 import { SqlDiagnostics } from './diagnostics';
+import { SqlCodeActionProvider } from './codeActions';
 import { formatSql, FormatOptions } from './sqlFormatter';
 import { parseSchema, SchemaInfo } from './schema';
 
@@ -121,6 +122,15 @@ export function activate(context: vscode.ExtensionContext) {
 
   const diagnostics = new SqlDiagnostics();
   context.subscriptions.push(diagnostics);
+
+  const codeActionProvider = vscode.languages.registerCodeActionsProvider(
+    'sql',
+    new SqlCodeActionProvider(),
+    {
+      providedCodeActionKinds: SqlCodeActionProvider.providedCodeActionKinds,
+    }
+  );
+  context.subscriptions.push(codeActionProvider);
 
   const refreshActive = () => {
     const ed = vscode.window.activeTextEditor;

@@ -351,7 +351,17 @@ export class SqlParser {
   private extractLimit(sql: string): number | undefined {
     const limitRegex = /\bLIMIT\s+(\d+)/i;
     const match = sql.match(limitRegex);
-    return match ? parseInt(match[1], 10) : undefined;
+    if (match) return parseInt(match[1], 10);
+
+    const fetchRegex = /\bFETCH\s+(?:FIRST|NEXT)\s+(\d+)\s+ROWS?\s+ONLY\b/i;
+    const fetchMatch = sql.match(fetchRegex);
+    if (fetchMatch) return parseInt(fetchMatch[1], 10);
+
+    const topRegex = /\bSELECT\s+(?:DISTINCT\s+)?TOP\s+(\d+)\b/i;
+    const topMatch = sql.match(topRegex);
+    if (topMatch) return parseInt(topMatch[1], 10);
+
+    return undefined;
   }
 
   private extractOffset(sql: string): number | undefined {

@@ -1,6 +1,6 @@
 # VS-SQLView
 
-![version](https://img.shields.io/badge/version-1.0.0-blue)
+![version](https://img.shields.io/badge/version-1.1.0-blue)
 ![VS Code engine](https://img.shields.io/badge/VS%20Code-%5E1.51.0-blue)
 ![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)
 
@@ -30,7 +30,21 @@ Open a `.sql` file, run the analysis, and get a performance score, actionable wa
 - **Index DDL suggestions** — generates ready-to-copy `CREATE INDEX ...` statements (up to 6) for `WHERE` filters, `JOIN` keys, `ORDER BY` / `GROUP BY` columns, prefix `LIKE` patterns, and composite indexes for `AND` equality conditions.
 - **Animated query-plan tree** — the `Analyze SQL Script` view renders a canvas tree (`Result → Limit → Sort → Aggregate → Filter → Join/Table`) with animated data-flow particles, a score/category sidebar, issue cards, and index cards with a copy-DDL button.
 - **Animated vertical query-flow graph with expandable nodes** — the `Show SQL Query Flow` view renders the execution as a vertical step pipeline (CTEs → tables → joins → subquery/UNION badges → WHERE → GROUP BY → HAVING → SELECT → ORDER BY → LIMIT → RESULT) with animated dots, click-to-expand nodes showing full details, zoom (wheel), pan (drag), play/pause, and speed control.
-- **Inline diagnostics with quick info** — SQL files get squiggles as you type (critical → error, warning → warning, info → info), each annotated with message + suggestion and a `vs-sqlview` source/code. Debounced via `diagnostics.delayMs` and toggleable via `diagnostics.enabled`.
+- **Inline diagnostics with quick info & Quick Fixes** — SQL files get squiggles as you type (critical → error, warning → warning, info → info), each annotated with message + suggestion and a `vs-sqlview` source/code. Debounced via `diagnostics.delayMs` and toggleable via `diagnostics.enabled`.
+- **Code Actions & Quick Fixes (Ctrl+. / Cmd+.)** — One-click fixes directly in the editor:
+  - Replace `SELECT *` with schema-defined columns or explicit column placeholders
+  - Add missing row limits tailored to your DBMS dialect:
+    - `LIMIT 1000` (PostgreSQL, MySQL, SQLite, MariaDB)
+    - `FETCH FIRST 1000 ROWS ONLY` (ANSI SQL:2008, Oracle, DB2)
+    - `SELECT TOP 1000 ...` (Microsoft SQL Server / T-SQL)
+  - Remove leading `%` wildcards in `LIKE` queries to restore B-tree index compatibility
+  - Convert `UNION` to `UNION ALL` for zero-overhead concatenation
+  - Replace orphan `HAVING` with `WHERE` or insert `GROUP BY`
+  - Remove redundant `DISTINCT`
+  - Convert comma joins to `INNER JOIN ... ON ...`
+  - Add safety `WHERE` filters to `UPDATE`/`DELETE`
+  - Insert or copy suggested `CREATE INDEX` DDL
+  - Format SQL selection with one click
 - **SQL formatter with Shift+Alt+F** — a `DocumentFormattingEditProvider` for `sql` normalizes keyword case and clause layout (`SELECT`, `FROM`, `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `JOIN ... ON`, `CASE/WHEN/THEN/ELSE/END`, `UNION`, `LIMIT/OFFSET`, etc.). Trigger it with `Shift+Alt+F` (Format Document) or the `Format SQL Document` title-bar button/command.
 - **PNG / Markdown export** — both the plan and flow webviews have `PNG` and `Report` buttons: PNG exports the canvas via save dialog, Markdown exports a full report (query, score table, issues table, index DDL blocks) built by `src/report.ts`.
 - **Multi-statement QuickPick** — if the active file contains more than one `SELECT`/`INSERT`/`UPDATE`/`DELETE`/`MERGE`/`WITH` statement (split on `;` respecting strings, comments, and parentheses), a QuickPick lets you choose which statement to analyze or visualize.
@@ -61,8 +75,9 @@ This produces a `.vsix` file (via `npx @vscode/vsce package`). In VS Code:
 ### Dev mode (F5)
 
 1. Open the `vs-sqlview` folder in VS Code.
-2. Press `F5` to launch the Extension Development Host.
-3. Open a `.sql` file in the new window and use the title-bar buttons or commands.
+2. Run unit tests: `npm run test:unit`
+3. Press `F5` to launch the Extension Development Host.
+4. Open a `.sql` file in the new window and use the title-bar buttons or commands.
 
 ## Usage
 
