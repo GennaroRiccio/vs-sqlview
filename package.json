@@ -2,9 +2,14 @@
   "name": "vs-sqlview",
   "displayName": "VS-SQLView",
   "description": "VS Code extension for SQL script analysis and query plan visualization",
-  "version": "1.1.0",
-  "author": {"name": "Gennaro Riccio"},
-  "repository": {"type": "git", "url": "https://github.com/GennaroRiccio/vs-sqlview"},
+  "version": "1.2.0",
+  "author": {
+    "name": "Gennaro Riccio"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GennaroRiccio/vs-sqlview"
+  },
   "publisher": "gennaroriccio",
   "engines": {
     "vscode": "^1.51.0"
@@ -16,6 +21,9 @@
     "onCommand:vs-sqlview.analyzeSqlScript",
     "onCommand:vs-sqlview.showQueryFlow",
     "onCommand:vs-sqlview.formatSql",
+    "onCommand:vs-sqlview.checkNvarchar",
+    "onCommand:vs-sqlview.testDbConnection",
+    "onCommand:vs-sqlview.refreshDbSchema",
     "onLanguage:sql"
   ],
   "main": "./out/extension.js",
@@ -35,6 +43,18 @@
         "command": "vs-sqlview.formatSql",
         "title": "Format SQL Document",
         "icon": "$(paintcan)"
+      },
+      {
+        "command": "vs-sqlview.checkNvarchar",
+        "title": "Check VARCHAR/NVARCHAR Consistency"
+      },
+      {
+        "command": "vs-sqlview.testDbConnection",
+        "title": "Test DB Connection"
+      },
+      {
+        "command": "vs-sqlview.refreshDbSchema",
+        "title": "Refresh DB Schema Cache"
       }
     ],
     "configuration": {
@@ -57,7 +77,11 @@
         "vs-sqlview.format.keywordCase": {
           "type": "string",
           "scope": "window",
-          "enum": ["upper", "lower", "preserve"],
+          "enum": [
+            "upper",
+            "lower",
+            "preserve"
+          ],
           "default": "upper",
           "description": "Maiuscole/minuscole delle parole chiave SQL nella formattazione."
         },
@@ -74,6 +98,62 @@
           "scope": "window",
           "default": "",
           "description": "Percorso (assoluto o relativo al workspace) a un file .sql con i CREATE TABLE per validare tabelle e colonne."
+        },
+        "vs-sqlview.db.enabled": {
+          "type": "boolean",
+          "scope": "window",
+          "default": false,
+          "description": "Abilita la connessione al DB SQL Server (driver tedious) per leggere i tipi reali delle colonne (VARCHAR vs NVARCHAR)."
+        },
+        "vs-sqlview.db.server": {
+          "type": "string",
+          "scope": "window",
+          "default": "",
+          "description": "Hostname o IP dell'istanza SQL Server (es. localhost\\SQLEXPRESS)."
+        },
+        "vs-sqlview.db.port": {
+          "type": "number",
+          "scope": "window",
+          "default": 1433,
+          "description": "Porta TCP dell'istanza SQL Server."
+        },
+        "vs-sqlview.db.database": {
+          "type": "string",
+          "scope": "window",
+          "default": "",
+          "description": "Database su cui leggere INFORMATION_SCHEMA.COLUMNS."
+        },
+        "vs-sqlview.db.user": {
+          "type": "string",
+          "scope": "window",
+          "default": "",
+          "description": "Utente SQL Server (autenticazione SQL)."
+        },
+        "vs-sqlview.db.password": {
+          "type": "string",
+          "scope": "window",
+          "default": "",
+          "description": "Password SQL Server. Si consiglia di usare un account di sola lettura."
+        },
+        "vs-sqlview.db.encrypt": {
+          "type": "boolean",
+          "scope": "window",
+          "default": true,
+          "description": "Cifra la connessione (consigliato true; con certificati self-signed abilitare trustServerCertificate)."
+        },
+        "vs-sqlview.db.trustServerCertificate": {
+          "type": "boolean",
+          "scope": "window",
+          "default": true,
+          "description": "Accetta certificati self-signed (tipico in sviluppo/on-premise)."
+        },
+        "vs-sqlview.db.connectTimeoutMs": {
+          "type": "number",
+          "scope": "window",
+          "default": 8000,
+          "minimum": 1000,
+          "maximum": 60000,
+          "description": "Timeout di connessione al DB in millisecondi."
         }
       }
     },
@@ -108,16 +188,20 @@
     "test": "node ./out/test/runTests.js"
   },
   "devDependencies": {
-    "@types/vscode": "^1.51.0",
     "@types/glob": "^7.1.3",
     "@types/mocha": "^8.0.4",
     "@types/node": "^12.11.7",
+    "@types/tedious": "^18.0.0",
+    "@types/vscode": "^1.51.0",
     "@typescript-eslint/eslint-plugin": "^4.11.0",
     "@typescript-eslint/parser": "^4.11.0",
+    "@vscode/test-electron": "^2.3.8",
     "eslint": "^7.19.0",
     "glob": "^7.1.6",
     "mocha": "^8.2.1",
-    "typescript": "^4.1.3",
-    "@vscode/test-electron": "^2.3.8"
+    "typescript": "^4.1.3"
+  },
+  "dependencies": {
+    "tedious": "^18.6.2"
   }
 }

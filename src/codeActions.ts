@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { SqlParser, splitStatements, SqlQueryPlan } from './sqlParser';
 import { PerformanceAnalyzer, IndexSuggestion } from './performanceAnalyzer';
-import { parseSchema, SchemaInfo } from './schema';
+import { parseSchema, mergeDbColumnTypes, SchemaInfo } from './schema';
+import { readDbOptions, fetchDbColumnTypes } from './dbSchema';
 import { formatSql, FormatOptions } from './sqlFormatter';
 
 export class SqlCodeActionProvider implements vscode.CodeActionProvider {
@@ -89,6 +90,23 @@ export class SqlCodeActionProvider implements vscode.CodeActionProvider {
         case 'INSERT_NO_COLS': {
           const action = this.createInsertColsFix(document, diagRange, fullText, schema, diag);
           if (action) actions.push(action);
+          break;
+        }
+
+        case 'NVARCHAR_VARCHAR_MISMATCH': {
+          const action = this.createNvarcharMismatchFix(document, diagRange, diag);
+          if (action) actions.push(action);
+          break;
+        }
+
+        case 'NVARCHAR_PLAIN_ON_UNICODE': {
+          const action = this.createNvarcharAddPrefixFix(document, diagRange, diag);
+          if (action) actions.push(action);
+          break;
+        }
+
+        case 'NVARCHAR_UNKNOWN_TYPES': {
+          actions.push(this.createDbConnectHintAction(diag));
           break;
         }
       }
@@ -482,6 +500,75 @@ export class SqlCodeActionProvider implements vscode.CodeActionProvider {
     return action;
   }
 
+  /**
+   * Colonna VARCHAR + letterale N'...': il prefisso N forza CONVERT_IMPLICIT
+   * sulla colonna e invalida l'indice. Il fix rimuove la N dal letterale.
+   */
+  private createNvarcharMismatchFix(
+    document: vscode.TextDocument,
+    diagRange: vscode.Range,
+    diag: vscode.Diagnostic
+  ): vscode.CodeAction | undefined {
+    const text = document.getText(diagRange);
+    const m = text.match(/N('[^']*')/);
+    const action = new vscode.CodeAction(
+      'Rimuovi prefisso N dal letterale (colonna VARCHAR: evita CONVERT_IMPLICIT)',
+      vscode.CodeActionKind.QuickFix
+    );
+    action.diagnostics = [diag];
+    action.isPreferred = true;
+    const edit = new vscode.WorkspaceEdit();
+    if (m && m.index !== undefined) {
+      const base = document.offsetAt(diagRange.start) + m.index;
+      edit.delete(document.uri, new vscode.Range(document.positionAt(base), document.positionAt(base + 1)));
+    } else {
+      edit.insert(document.uri, new vscode.Position(diagRange.start.line, 0), '-- Colonna VARCHAR con letterale N\'...\': rimuovere la N per usare l\'indice.\n');
+    }
+    action.edit = edit;
+    return action;
+  }
+
+  /**
+   * Colonna NVARCHAR + letterale '...': aggiunge il prefisso N per coerenza
+   * di tipo Unicode, collation e uso ottimale dell'indice.
+   */
+  private createNvarcharAddPrefixFix(
+    document: vscode.TextDocument,
+    diagRange: vscode.Range,
+    diag: vscode.Diagnostic
+  ): vscode.CodeAction | undefined {
+    const text = document.getText(diagRange);
+    const action = new vscode.CodeAction(
+      'Aggiungi prefisso N al letterale (colonna NVARCHAR)',
+      vscode.CodeActionKind.QuickFix
+    );
+    action.diagnostics = [diag];
+    action.isPreferred = true;
+    const edit = new vscode.WorkspaceEdit();
+    const m = text.match(/'[^']*'/);
+    if (m && m.index !== undefined) {
+      edit.insert(document.uri, document.positionAt(document.offsetAt(diagRange.start) + m.index), 'N');
+    } else {
+      edit.insert(document.uri, new vscode.Position(diagRange.start.line, 0), '-- Colonna NVARCHAR con letterale senza N: aggiungere N\'...\'.\n');
+    }
+    action.edit = edit;
+    return action;
+  }
+
+  private createDbConnectHintAction(diag: vscode.Diagnostic): vscode.CodeAction {
+    const action = new vscode.CodeAction(
+      'Configura connessione DB per verifica VARCHAR/NVARCHAR (vs-sqlview.db)',
+      vscode.CodeActionKind.QuickFix
+    );
+    action.diagnostics = [diag];
+    action.command = {
+      command: 'workbench.action.openSettings',
+      title: 'Apri impostazioni DB',
+      arguments: ['vs-sqlview.db'],
+    };
+    return action;
+  }
+
   private async loadSchema(document: vscode.TextDocument): Promise<SchemaInfo> {
     let ddl = document.getText();
     try {
@@ -501,6 +588,19 @@ export class SqlCodeActionProvider implements vscode.CodeActionProvider {
     } catch {
       // Ignora schema se non accessibile
     }
-    return parseSchema(ddl);
+    const schema = parseSchema(ddl);
+    try {
+      const { enabled, options } = readDbOptions();
+      if (enabled && options.server && options.database) {
+        const plan = this.parser.parse(document.getText());
+        if (plan.tables.length > 0) {
+          const dbTypes = await fetchDbColumnTypes(plan.tables.map((t) => t.name));
+          if (Object.keys(dbTypes).length > 0) mergeDbColumnTypes(schema, dbTypes);
+        }
+      }
+    } catch {
+      // DB non raggiungibile: si usano solo i tipi dal DDL
+    }
+    return schema;
   }
 }

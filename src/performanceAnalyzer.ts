@@ -1,5 +1,6 @@
 import { SqlQueryPlan } from './sqlParser';
 import { SchemaInfo, schemaTableCount } from './schema';
+import { nvarcharIssuesFor } from './nvarcharCheck';
 
 export interface PerformanceIssue {
   severity: 'critical' | 'warning' | 'info';
@@ -54,6 +55,9 @@ const CODE_CATEGORY: Record<string, string> = {
   INSERT_NO_COLS: 'Struttura',
   UNKNOWN_TABLE: 'Struttura',
   UNKNOWN_COLUMN: 'Struttura',
+  NVARCHAR_VARCHAR_MISMATCH: 'Filtri',
+  NVARCHAR_PLAIN_ON_UNICODE: 'Filtri',
+  NVARCHAR_UNKNOWN_TYPES: 'Struttura',
 };
 
 export class PerformanceAnalyzer {
@@ -86,6 +90,9 @@ export class PerformanceAnalyzer {
     if (schema && schemaTableCount(schema) > 0) {
       this.validateSchema(plan, schema, issues);
     }
+    // Coerenza VARCHAR/NVARCHAR: funziona con tipi da DDL e/o dal DB (tedious).
+    // Se lo schema non ha tipi noti emette al massimo un info di guida (NVARCHAR_UNKNOWN_TYPES).
+    issues.push(...nvarcharIssuesFor(plan, schema));
 
     const indexes = this.suggestIndexes(plan, schema);
     const score = this.computeScore(issues);

@@ -1,7 +1,8 @@
 import * as assert from 'assert';
 import { SqlParser } from '../../sqlParser';
 import { PerformanceAnalyzer } from '../../performanceAnalyzer';
-import { parseSchema } from '../../schema';
+import { parseSchema, mergeDbColumnTypes } from '../../schema';
+import { extractStringLiterals, hasNvarcharLiteral, findNvarcharMismatches } from '../../nvarcharCheck';
 import { formatSql } from '../../sqlFormatter';
 
 suite('VS-SQLView Unit Tests', () => {
@@ -96,5 +97,49 @@ suite('VS-SQLView Unit Tests', () => {
     assert.ok(formatted.includes('WHERE'));
     assert.ok(formatted.includes('ORDER BY'));
     assert.ok(formatted.includes('LIMIT'));
+  });
+
+  test('parseSchema extracts column types (VARCHAR vs NVARCHAR)', () => {
+    const ddl = `CREATE TABLE utenti (id INT, nome NVARCHAR(100), codice VARCHAR(20));`;
+    const schema = parseSchema(ddl);
+    assert.strictEqual(schema.tables['utenti'].columnTypes['nome'], 'NVARCHAR');
+    assert.strictEqual(schema.tables['utenti'].columnTypes['codice'], 'VARCHAR');
+  });
+
+  test('extractStringLiterals distinguishes N-prefixed literals', () => {
+    const lits = extractStringLiterals(`SELECT * FROM t WHERE a = N'ciao' AND b = 'mondo';`);
+    assert.strictEqual(lits.length, 2);
+    assert.ok(lits[0].isUnicode);
+    assert.ok(!lits[1].isUnicode);
+    assert.ok(hasNvarcharLiteral(`SELECT N'x';`));
+    assert.ok(!hasNvarcharLiteral(`SELECT 'x';`));
+  });
+
+  test('findNvarcharMismatches flags VARCHAR column vs N-literal (CONVERT_IMPLICIT)', () => {
+    const schema = parseSchema(`CREATE TABLE utenti (id INT, codice VARCHAR(20), nome NVARCHAR(100));`);
+    const plan = parser.parse(`SELECT * FROM utenti WHERE codice = N'ABC' AND nome = 'Mario';`);
+    const mm = findNvarcharMismatches(plan, schema);
+    assert.strictEqual(mm.length, 2);
+    assert.ok(mm.some((x) => x.kind === 'varchar-col-n-literal' && x.column === 'codice'));
+    assert.ok(mm.some((x) => x.kind === 'nvarchar-col-plain-literal' && x.column === 'nome'));
+    const result = analyzer.analyzeFull(plan, schema);
+    assert.ok(result.issues.some((i) => i.code === 'NVARCHAR_VARCHAR_MISMATCH'));
+    assert.ok(result.issues.some((i) => i.code === 'NVARCHAR_PLAIN_ON_UNICODE'));
+  });
+
+  test('mergeDbColumnTypes enriches DDL schema with DB types', () => {
+    const schema = parseSchema(`CREATE TABLE utenti (id INT);`);
+    mergeDbColumnTypes(schema, { utenti: { codice: 'varchar', nome: 'nvarchar' } });
+    assert.strictEqual(schema.tables['utenti'].columnTypes['codice'], 'VARCHAR');
+    const plan = parser.parse(`SELECT * FROM utenti WHERE codice = N'X';`);
+    const result = analyzer.analyzeFull(plan, schema);
+    assert.ok(result.issues.some((i) => i.code === 'NVARCHAR_VARCHAR_MISMATCH'));
+  });
+
+  test('NVARCHAR_UNKNOWN_TYPES guides user when DDL has no types', () => {
+    const plan = parser.parse(`SELECT * FROM utenti WHERE codice = N'ABC';`);
+    const result = analyzer.analyzeFull(plan, parseSchema(`SELECT 1;`));
+    // Senza schema tipato: solo guida informativa se il raw contiene N'...'
+    assert.ok(result.issues.some((i) => i.code === 'NVARCHAR_UNKNOWN_TYPES'));
   });
 });

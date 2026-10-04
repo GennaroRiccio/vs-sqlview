@@ -1,6 +1,6 @@
 # VS-SQLView
 
-![version](https://img.shields.io/badge/version-1.1.0-blue)
+![version](https://img.shields.io/badge/version-1.2.0-blue)
 ![VS Code engine](https://img.shields.io/badge/VS%20Code-%5E1.51.0-blue)
 ![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)
 
@@ -49,6 +49,11 @@ Open a `.sql` file, run the analysis, and get a performance score, actionable wa
 - **PNG / Markdown export** — both the plan and flow webviews have `PNG` and `Report` buttons: PNG exports the canvas via save dialog, Markdown exports a full report (query, score table, issues table, index DDL blocks) built by `src/report.ts`.
 - **Multi-statement QuickPick** — if the active file contains more than one `SELECT`/`INSERT`/`UPDATE`/`DELETE`/`MERGE`/`WITH` statement (split on `;` respecting strings, comments, and parentheses), a QuickPick lets you choose which statement to analyze or visualize.
 - **Schema-aware validation via CREATE TABLE / DDL file** — `CREATE TABLE` definitions found in the current document (or in an external file pointed to by `vs-sqlview.schemaFile`) are parsed for table/column names; unknown tables and columns are reported as warnings.
+- **VARCHAR/NVARCHAR consistency check with live DB types (SQL Server)** — detects `N'...'` Unicode literals in the script and verifies coherence against real column types read from the DB (`INFORMATION_SCHEMA.COLUMNS` via the `tedious` TDS driver):
+  - `VARCHAR` column compared with `N'...'` → warning `NVARCHAR_VARCHAR_MISMATCH` (SQL Server applies `CONVERT_IMPLICIT` on the column, index becomes unusable → index scan). Quick Fix removes the `N` prefix or suggests `ALTER COLUMN ... NVARCHAR`.
+  - `NVARCHAR` column compared with plain `'...'` → info `NVARCHAR_PLAIN_ON_UNICODE` (adds missing `N` prefix for type/collation consistency). Quick Fix adds the `N` prefix.
+  - `N'...'` present but column types unknown → info `NVARCHAR_UNKNOWN_TYPES` guiding to configure `vs-sqlview.db.*` and run `Refresh DB Schema`, or to add typed `CREATE TABLE` to the schema file. Local `CREATE TABLE (..., nome NVARCHAR(100), codice VARCHAR(20))` types are parsed too, so the check also works offline.
+  - Commands: `Check VARCHAR/NVARCHAR Consistency` (`vs-sqlview.checkNvarchar`), `Test DB Connection` (`vs-sqlview.testDbConnection`), `Refresh DB Schema Cache` (`vs-sqlview.refreshDbSchema`). Diagnostics are enriched asynchronously from the DB (5-min cache) without ever blocking the editor.
 
 ## Requirements
 
@@ -98,6 +103,9 @@ Press `Ctrl+Shift+P` / `Cmd+Shift+P` and run:
 - `Analyze SQL Script`
 - `Show SQL Query Flow`
 - `Format SQL Document`
+- `Check VARCHAR/NVARCHAR Consistency`
+- `Test DB Connection`
+- `Refresh DB Schema Cache`
 
 ### Status bar
 
@@ -109,6 +117,14 @@ A `$(database) Analyze SQL` item on the right side of the status bar runs `Analy
 2. Set `vs-sqlview.schemaFile` to its absolute path or workspace-relative path.
 3. Run the analysis — unknown tables/columns are validated against the combined (document + file) schema.
 
+### VARCHAR/NVARCHAR check with live DB (SQL Server)
+
+1. `npm install` (installs the `tedious` TDS driver, no native dependencies).
+2. Set `vs-sqlview.db.enabled = true` plus `server`, `database`, `user`, `password` (use a read-only account; the check only runs `SELECT` on `INFORMATION_SCHEMA.COLUMNS`).
+3. Run `VS-SQLView: Test DB Connection` to verify connectivity.
+4. Open a `.sql` file using `N'...'` literals: diagnostics flag `NVARCHAR_VARCHAR_MISMATCH` / `NVARCHAR_PLAIN_ON_UNICODE` inline, and `Check VARCHAR/NVARCHAR Consistency` shows the full report. Use `Ctrl+.` for one-click fixes (remove/add the `N` prefix).
+5. Without DB access the check still works from typed `CREATE TABLE` in the file/`schemaFile` (e.g. `nome NVARCHAR(100)` vs `codice VARCHAR(20)`).
+
 ## Extension Settings
 
 | Setting | Type | Default | Description |
@@ -118,6 +134,15 @@ A `$(database) Analyze SQL` item on the right side of the status bar runs `Analy
 | `vs-sqlview.format.keywordCase` | `upper` \| `lower` \| `preserve` | `upper` | Keyword casing applied by the SQL formatter. |
 | `vs-sqlview.format.indentWidth` | number (1–8) | `2` | Indentation width (spaces) applied by the SQL formatter. |
 | `vs-sqlview.schemaFile` | string | `""` | Path (absolute or workspace-relative) to a `.sql` file with `CREATE TABLE` statements used to validate tables and columns. |
+| `vs-sqlview.db.enabled` | boolean | `false` | Enable live SQL Server connection (tedious driver) to read real column types for the VARCHAR/NVARCHAR check. |
+| `vs-sqlview.db.server` | string | `""` | SQL Server hostname/instance (e.g. `localhost\\SQLEXPRESS`). |
+| `vs-sqlview.db.port` | number | `1433` | SQL Server TCP port. |
+| `vs-sqlview.db.database` | string | `""` | Database queried via `INFORMATION_SCHEMA.COLUMNS`. |
+| `vs-sqlview.db.user` | string | `""` | SQL login (read-only account recommended). |
+| `vs-sqlview.db.password` | string | `""` | SQL login password. |
+| `vs-sqlview.db.encrypt` | boolean | `true` | Encrypt the TDS connection. |
+| `vs-sqlview.db.trustServerCertificate` | boolean | `true` | Accept self-signed certificates (typical on-prem/dev). |
+| `vs-sqlview.db.connectTimeoutMs` | number | `8000` | DB connect timeout in ms. |
 
 ## Example
 
@@ -151,7 +176,9 @@ Run **Analyze SQL Script** on the `SELECT` above and you will get, for example:
 - `src/queryFlowPanel.ts` — `SQL Query Flow` webview: animated vertical step graph with expandable nodes, zoom/pan/playback + PNG/Markdown export.
 - `src/diagnostics.ts` — inline `DiagnosticCollection` for SQL files, debounced updates, keyword-anchored ranges.
 - `src/sqlFormatter.ts` — tokenizer-based SQL formatter honoring `keywordCase` and `indentWidth`.
-- `src/schema.ts` — `CREATE TABLE` DDL parser (`parseSchema`) used for schema-aware validation.
+- `src/schema.ts` — `CREATE TABLE` DDL parser (`parseSchema`, now with column types) + `mergeDbColumnTypes` used for schema-aware validation.
+- `src/nvarcharCheck.ts` — `N'...'` literal extraction and VARCHAR/NVARCHAR coherence analysis (`NVARCHAR_VARCHAR_MISMATCH`, `NVARCHAR_PLAIN_ON_UNICODE`, `NVARCHAR_UNKNOWN_TYPES`).
+- `src/dbSchema.ts` — live SQL Server metadata via the `tedious` TDS driver (`INFORMATION_SCHEMA.COLUMNS`), 5-min cache, `testDbConnection`.
 - `src/report.ts` — Markdown report builder (query, score table, issues table, index DDL) used by both export buttons.
 
 ## Development

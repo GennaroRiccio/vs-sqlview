@@ -10,7 +10,9 @@ import { QueryFlowPanel } from './queryFlowPanel';
 import { SqlDiagnostics } from './diagnostics';
 import { SqlCodeActionProvider } from './codeActions';
 import { formatSql, FormatOptions } from './sqlFormatter';
-import { parseSchema, SchemaInfo } from './schema';
+import { parseSchema, mergeDbColumnTypes, SchemaInfo } from './schema';
+import { hasNvarcharLiteral } from './nvarcharCheck';
+import { readDbOptions, fetchDbColumnTypes, testDbConnection, clearDbSchemaCache } from './dbSchema';
 
 const sqlParser = new SqlParser();
 const performanceAnalyzer = new PerformanceAnalyzer();
@@ -55,7 +57,21 @@ async function loadSchema(document: vscode.TextDocument): Promise<SchemaInfo> {
   } catch {
     // schema opzionale: si continua con quello trovato nel documento
   }
-  return parseSchema(ddl);
+  const schema = parseSchema(ddl);
+  // Arricchisce con i tipi reali dal DB (VARCHAR vs NVARCHAR) quando la connessione è abilitata
+  try {
+    const { enabled, options } = readDbOptions();
+    if (enabled && options.server && options.database) {
+      const plan = sqlParser.parse(document.getText());
+      if (plan.tables.length > 0) {
+        const dbTypes = await fetchDbColumnTypes(plan.tables.map((t) => t.name));
+        if (Object.keys(dbTypes).length > 0) mergeDbColumnTypes(schema, dbTypes);
+      }
+    }
+  } catch {
+    // DB non raggiungibile: si continua con i tipi dal DDL locale
+  }
+  return schema;
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -186,6 +202,69 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
   context.subscriptions.push(formatCommand);
+
+  const nvarcharCommand = vscode.commands.registerCommand('vs-sqlview.checkNvarchar', async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showWarningMessage('Nessun editor attivo. Apri un file SQL e riprova.');
+      return;
+    }
+    const sql = await pickStatementSql(editor.document);
+    if (!sql || !sql.trim()) return;
+    try {
+      const plan = sqlParser.parse(sql);
+      const schema = await loadSchema(editor.document);
+      const result = performanceAnalyzer.analyzeFull(plan, schema);
+      const nv = result.issues.filter((i) => (i.code ?? '').startsWith('NVARCHAR'));
+      if (nv.length === 0) {
+        vscode.window.showInformationMessage(
+          hasNvarcharLiteral(sql)
+            ? 'Nessuna incoerenza VARCHAR/NVARCHAR rilevata.'
+            : 'Nessun letterale N\'...\' nello script: niente da verificare.'
+        );
+      } else {
+        const lines = nv.map((i) => `• [${i.severity}] ${i.message}`).join('\n');
+        vscode.window.showWarningMessage(`Coerenza VARCHAR/NVARCHAR: ${nv.length} avvisi`, { modal: false, detail: lines });
+      }
+      QueryPlanPanel.createOrShow(context.extensionUri, plan, result);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Errore nel controllo NVARCHAR: ${error}`);
+    }
+  });
+  context.subscriptions.push(nvarcharCommand);
+
+  const testDbCommand = vscode.commands.registerCommand('vs-sqlview.testDbConnection', async () => {
+    try {
+      const { enabled, options } = readDbOptions();
+      if (!enabled) {
+        const open = await vscode.window.showWarningMessage(
+          'Connessione DB disabilitata (vs-sqlview.db.enabled = false). Aprirla nelle impostazioni?',
+          'Apri impostazioni'
+        );
+        if (open === 'Apri impostazioni') {
+          vscode.commands.executeCommand('workbench.action.openSettings', 'vs-sqlview.db');
+        }
+        return;
+      }
+      if (!options.server || !options.database) {
+        vscode.window.showErrorMessage('Impostare almeno vs-sqlview.db.server e vs-sqlview.db.database.');
+        return;
+      }
+      const label = await testDbConnection();
+      vscode.window.showInformationMessage(`Connessione DB riuscita: ${label}`);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Connessione DB fallita: ${error}`);
+    }
+  });
+  context.subscriptions.push(testDbCommand);
+
+  const refreshDbCommand = vscode.commands.registerCommand('vs-sqlview.refreshDbSchema', async () => {
+    clearDbSchemaCache();
+    const ed = vscode.window.activeTextEditor;
+    if (ed) diagnostics.update(ed.document);
+    vscode.window.showInformationMessage('Cache schema DB svuotata: tipi colonna riletti al prossimo controllo.');
+  });
+  context.subscriptions.push(refreshDbCommand);
 
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = 'vs-sqlview.analyzeSqlScript';

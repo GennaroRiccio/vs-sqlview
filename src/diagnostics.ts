@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import { SqlParser } from './sqlParser';
 import { PerformanceAnalyzer, PerformanceIssue } from './performanceAnalyzer';
-import { parseSchema } from './schema';
+import { parseSchema, mergeDbColumnTypes } from './schema';
+import { hasNvarcharLiteral } from './nvarcharCheck';
+import { readDbOptions, fetchDbColumnTypes } from './dbSchema';
 
 const MAX_RANGES_PER_ISSUE = 8;
 
@@ -40,24 +42,57 @@ export class SqlDiagnostics implements vscode.Disposable {
         return;
       }
       const plan = this.parser.parse(text);
-      const issues = this.analyzer.analyzeFull(plan, parseSchema(text)).issues;
-      const diags: vscode.Diagnostic[] = [];
-      for (const issue of issues) {
-        for (const range of this.rangesFor(document, issue)) {
-          const d = new vscode.Diagnostic(
-            range,
-            `${issue.message}\n${issue.suggestion}`,
-            this.toSeverity(issue.severity)
-          );
-          d.source = 'vs-sqlview';
-          d.code = issue.code ?? '';
-          diags.push(d);
-        }
-      }
-      this.collection.set(document.uri, diags);
+      const schema = parseSchema(text);
+      const issues = this.analyzer.analyzeFull(plan, schema).issues;
+      this.collection.set(document.uri, this.toDiags(issues, document));
+      // Arricchimento async con i tipi reali dal DB (solo se serve e se abilitato)
+      void this.enrichWithDbTypes(document, text);
     } catch {
       // Mai rompere l'editor per un errore di analisi
     }
+  }
+
+  /**
+   * Se lo script usa letterali N'...' (o confronti stringa) e la connessione DB è
+   * abilitata, rilegge i tipi da INFORMATION_SCHEMA e ri-emette le diagnostiche
+   * con il controllo di coerenza VARCHAR/NVARCHAR. Mai bloccante: gli errori
+   * di connessione non cancellano le diagnostiche locali già mostrate.
+   */
+  private async enrichWithDbTypes(document: vscode.TextDocument, text: string): Promise<void> {
+    try {
+      const { enabled, options } = readDbOptions();
+      if (!enabled || !options.server || !options.database) return;
+      if (!hasNvarcharLiteral(text) && !/\b(VARCHAR|NVARCHAR|CHAR|NCHAR)\b/i.test(text)) return;
+      const plan = this.parser.parse(text);
+      if (plan.tables.length === 0) return;
+      const dbTypes = await fetchDbColumnTypes(plan.tables.map((t) => t.name));
+      if (Object.keys(dbTypes).length === 0) return;
+      const schema = mergeDbColumnTypes(parseSchema(text), dbTypes);
+      const issues = this.analyzer.analyzeFull(plan, schema).issues;
+      // Evita di sovrascrivere se nel frattempo il documento è cambiato
+      const current = vscode.workspace.textDocuments.find((d) => d.uri.toString() === document.uri.toString());
+      if (current && current.getText() !== text) return;
+      this.collection.set(document.uri, this.toDiags(issues, document));
+    } catch {
+      // Connessione DB fallita: restano valide le diagnostiche locali
+    }
+  }
+
+  private toDiags(issues: PerformanceIssue[], document: vscode.TextDocument): vscode.Diagnostic[] {
+    const diags: vscode.Diagnostic[] = [];
+    for (const issue of issues) {
+      for (const range of this.rangesFor(document, issue)) {
+        const d = new vscode.Diagnostic(
+          range,
+          `${issue.message}\n${issue.suggestion}`,
+          this.toSeverity(issue.severity)
+        );
+        d.source = 'vs-sqlview';
+        d.code = issue.code ?? '';
+        diags.push(d);
+      }
+    }
+    return diags;
   }
 
   clear(document: vscode.TextDocument) {
@@ -157,6 +192,15 @@ export class SqlDiagnostics implements vscode.Disposable {
       }
       case 'INSERT_NO_COLS':
         return this.firstMatch(document, /\bINSERT\s+INTO\b/i);
+      case 'NVARCHAR_VARCHAR_MISMATCH':
+      case 'NVARCHAR_PLAIN_ON_UNICODE': {
+        const r = this.matchRanges(document, /N?'[^']*'/g);
+        return r.length > 0 ? r.slice(0, MAX_RANGES_PER_ISSUE) : [this.fallbackRange(document)];
+      }
+      case 'NVARCHAR_UNKNOWN_TYPES': {
+        const r = this.matchRanges(document, /N'[^']*'/g);
+        return r.length > 0 ? [r[0]] : [this.fallbackRange(document)];
+      }
       case 'UNKNOWN_TABLE':
       case 'UNKNOWN_COLUMN': {
         const m = issue.message.match(/"(.*?)"/);
